@@ -81,6 +81,47 @@ class MapFeatures:
         return self.format is not MapFormat.ROE
 
     @property
+    def is_ab_or_later(self) -> bool:
+        """AB и всё, что появилось после: SoD, WoG, HotA."""
+        return self.format is not MapFormat.ROE
+
+    @property
+    def is_sod_or_later(self) -> bool:
+        """SoD и всё, что появилось после: WoG, HotA."""
+        return self.format in (MapFormat.SOD, MapFormat.WOG, MapFormat.HOTA)
+
+    @property
+    def faction_mask_bytes(self) -> int:
+        """Ширина битовой маски разрешённых фракций.
+
+        В RoE фракций восемь и маска умещается в байт. Начиная с AB фракций
+        девять, и поле расширили до двух байт; HotA с его двенадцатью
+        фракциями в те же два байта укладывается.
+        """
+        return 1 if self.format is MapFormat.ROE else 2
+
+    @property
+    def unplayable_player_padding(self) -> int:
+        """Сколько байт занимает огрызок игрока, за которого нельзя играть.
+
+        Значения накопительные, и это главная ловушка места. В VCMI код выглядит
+        как три подряд идущих условия, а не как выбор одного из трёх::
+
+            if(features.levelROE) reader->skipUnused(6);
+            if(features.levelAB)  reader->skipUnused(6);
+            if(features.levelSOD) reader->skipUnused(1);
+
+        У AB-карты истинны и levelROE, и levelAB, поэтому пропускается 12 байт,
+        а не 6. Прочитать это как взаимоисключающие ветки — и половина карт
+        перестаёт разбираться.
+        """
+        if self.format is MapFormat.ROE:
+            return 6
+        if self.format is MapFormat.AB:
+            return 12
+        return 13
+
+    @property
     def hota_has_mirror_arena(self) -> bool:
         """Флаги зеркальной и арена-карты (levelHOTA1)."""
         return self.is_hota and self.hota_level > 0
