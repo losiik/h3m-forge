@@ -129,6 +129,9 @@ def parse(data: bytes) -> H3Map:
     parsed.victory = conditions.read_victory(reader, header.features)
     parsed.loss = conditions.read_loss(reader)
 
+    # Границы отката. Каждая отделяет то, что уже разобрано, от того, на чём
+    # разбор может споткнуться: остановка отбрасывает только блоки после
+    # ближайшей границы, а не всё разобранное.
     boundary = reader.pos
     try:
         parsed.meta = _read_meta(reader, header)
@@ -136,7 +139,6 @@ def parse(data: bytes) -> H3Map:
         parsed.terrain = read_terrain(reader, header.size, header.levels)
         parsed.object_templates = read_object_templates(reader)
     except options.UnsupportedBlockError as exc:
-        # Откатываемся к началу блока: пусть остаток честно лежит хвостом.
         reader.pos = boundary
         parsed.meta = None
         parsed.predefined_heroes = None
