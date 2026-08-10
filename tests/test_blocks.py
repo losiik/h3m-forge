@@ -1,16 +1,16 @@
 """Проверки интерпретации блоков на реальных картах.
 
-Главный тест здесь — `test_object_templates_follow_terrain`. Он проверяет не
-отдельный блок, а всю цепочку разбора разом: рельеф имеет точно вычислимый
-размер, поэтому если сразу за ним лежит правдоподобное число шаблонов
-объектов, значит **всё** до него разобрано верно. Ошибись мы на байт в любом
-из блоков — от условий победы до предустановленных героев — рельеф съехал бы,
-и за ним оказался бы мусор.
+Оракул «что лежит сразу за разобранной частью» живёт в тестах того блока,
+который сейчас последний: он обязан переезжать вместе с границей разбора.
+Пока последними были тайлы, он проверял число шаблонов объектов; теперь
+шаблоны разобраны, и проверка переехала в `test_templates.py`.
+
+Здесь остались проверки, не зависящие от границы: согласованность рельефа с
+заголовком, осмысленность значений и связь между далеко разнесёнными блоками.
 """
 
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 
 import pytest
@@ -31,24 +31,6 @@ ALL_MAPS = _maps()
 game_required = pytest.mark.skipif(
     not ALL_MAPS, reason="установка Heroes III не найдена (задайте H3_GAME_DIR)"
 )
-
-#: Больше десяти тысяч разных шаблонов объектов на карте не бывает.
-MAX_PLAUSIBLE_TEMPLATES = 10_000
-
-
-@game_required
-@pytest.mark.parametrize("map_path", ALL_MAPS, ids=lambda p: p.name)
-def test_object_templates_follow_terrain(map_path: Path) -> None:
-    """Сразу за рельефом лежит правдоподобное число шаблонов объектов."""
-    parsed = mapfile.load(map_path)
-
-    if parsed.terrain is None:
-        pytest.skip(f"разбор остановлен: {parsed.stopped_at}")
-
-    assert len(parsed.tail) >= 4
-    (template_count,) = struct.unpack_from("<I", parsed.tail, 0)
-    assert 0 < template_count < MAX_PLAUSIBLE_TEMPLATES
-
 
 @game_required
 @pytest.mark.parametrize("map_path", ALL_MAPS, ids=lambda p: p.name)
