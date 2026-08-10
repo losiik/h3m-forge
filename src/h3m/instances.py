@@ -295,6 +295,30 @@ def _read_payload(
         _read_hero(reader, features)
         return
 
+    if object_id == Obj.SEER_HUT:
+        _read_seer_hut(reader, features)
+        return
+
+    if object_id == Obj.QUEST_GUARD:
+        _read_quest(reader, features)
+        return
+
+    if object_id == Obj.PANDORAS_BOX:
+        _read_box_content(reader, features)
+        return
+
+    if object_id == Obj.EVENT:
+        _read_map_event_object(reader, features)
+        return
+
+    if object_id == Obj.BORDER_GATE:
+        if subid == 1000:  # квестовые врата HotA
+            _read_quest(reader, features)
+            return
+        if subid == 1001:  # могила HotA
+            raise UnknownObjectError(object_id, subid, position)
+        return  # обычные пограничные врата начинки не имеют
+
     if _has_no_payload(object_id, subid):
         return
 
@@ -348,8 +372,113 @@ def _read_hero_placeholder(reader: BinaryReader, features: MapFeatures) -> None:
         reader.bytes_(reader.i32() * 4)  # стартовые артефакты
 
 
-BUILDINGS_MASK = 6
-"""Байт на маску построек: 48 зданий."""
+def _read_quest(reader: BinaryReader, features: MapFeatures) -> int:
+    """Условие квеста: чего требует хижина провидца, страж или врата.
+
+    Возвращает тип условия — он нужен вызывающему: тип 0 означает «условия
+    нет», и тогда ни срока, ни текстов, ни награды не записано. Это
+    единственное место в квестах, где отсутствие данных выражается не флагом,
+    а значением типа.
+    """
+    mission = reader.u8()
+
+    match mission:
+        case 0:  # условия нет
+            return mission
+        case 1 | 3 | 4:  # уровень героя, убить героя, убить существо
+            reader.bytes_(4)
+        case 2:  # первичные навыки
+            reader.bytes_(PRIMARY_SKILLS)
+        case 5:  # принести артефакты
+            reader.bytes_(reader.u8() * features.artifact_id_bytes)
+        case 6:  # привести войско
+            reader.bytes_(reader.u8() * (features.creature_id_bytes + 2))
+        case 7:  # принести ресурсы
+            reader.bytes_(RESOURCE_COUNT * 4)
+        case 8 | 9:  # быть определённым героем, быть определённым игроком
+            reader.u8()
+        case _:
+            raise ValueError(f"неизвестный тип квеста: {mission}")
+
+    reader.bytes_(4)  # срок выполнения
+    reader.string()  # текст при первом посещении
+    reader.string()  # текст при повторном
+    reader.string()  # текст по выполнении
+    return mission
+
+
+def _read_seer_hut(reader: BinaryReader, features: MapFeatures) -> None:
+    """Хижина провидца: условие квеста и награда за него.
+
+    В RoE общей структуры квеста ещё не было: там записан один байт с номером
+    артефакта, а значение 255 означает «квеста нет». Ни срока выполнения, ни
+    своих текстов в RoE у хижины нет — всё это появилось в AB вместе с полной
+    системой квестов.
+    """
+    if features.is_ab_or_later:
+        mission = _read_quest(reader, features)
+    else:
+        mission = 0 if reader.u8() == 0xFF else 5
+
+    if mission == 0:
+        reader.bytes_(3)
+        return
+
+    reward = reader.u8()
+    match reward:
+        case 0:  # без награды
+            pass
+        case 1 | 2:  # опыт, мана
+            reader.bytes_(4)
+        case 3 | 4:  # боевой дух, удача
+            reader.u8()
+        case 5:  # ресурсы
+            reader.u8()
+            reader.bytes_(4)
+        case 6 | 7:  # первичный навык, вторичный навык
+            reader.bytes_(2)
+        case 8:  # артефакт
+            reader.bytes_(features.artifact_id_bytes)
+        case 9:  # заклинание
+            reader.u8()
+        case 10:  # существа
+            reader.bytes_(features.creature_id_bytes + 2)
+        case _:
+            raise ValueError(f"неизвестный тип награды: {reward}")
+
+    reader.bytes_(2)
+
+
+def _read_box_content(reader: BinaryReader, features: MapFeatures) -> None:
+    """Содержимое ящика Пандоры — оно же начинка события на карте."""
+    _read_message_and_guards(reader, features)
+
+    reader.bytes_(4)  # опыт
+    reader.bytes_(4)  # мана
+    reader.i8()  # боевой дух
+    reader.i8()  # удача
+    reader.bytes_(RESOURCE_COUNT * 4)  # ресурсы
+    reader.bytes_(PRIMARY_SKILLS)  # первичные навыки
+
+    reader.bytes_(reader.u8() * 2)  # вторичные навыки
+    reader.bytes_(reader.u8() * features.artifact_id_bytes)  # артефакты
+    reader.bytes_(reader.u8())  # заклинания
+    reader.bytes_(reader.u8() * (features.creature_id_bytes + 2))  # существа
+
+    reader.bytes_(8)
+
+
+def _read_map_event_object(reader: BinaryReader, features: MapFeatures) -> None:
+    """Событие, расставленное на карте: содержимое ящика плюс правила срабатывания."""
+    _read_box_content(reader, features)
+    reader.u8()  # каких игроков касается
+    reader.u8()  # срабатывает ли у ИИ
+    reader.u8()  # исчезает ли после посещения
+    reader.bytes_(4)
+
+    if features.hota_has_round_limit:
+        reader.u8()  # срабатывает ли у человека (HotA)
+
 
 SPELLS_MASK = 9
 """Байт на маску заклинаний: 70 заклинаний."""
@@ -370,14 +499,17 @@ def _read_town(reader: BinaryReader, features: MapFeatures) -> None:
     reader.u8()  # построение войск
 
     if reader.u8():  # заданы постройки
-        reader.bytes_(BUILDINGS_MASK)  # построенные
-        reader.bytes_(BUILDINGS_MASK)  # запрещённые
+        reader.bytes_(features.buildings_mask_bytes)  # построенные
+        reader.bytes_(features.buildings_mask_bytes)  # запрещённые
     else:
         reader.u8()  # есть ли форт
 
     if features.is_ab_or_later:
         reader.bytes_(SPELLS_MASK)  # обязательные заклинания
     reader.bytes_(SPELLS_MASK)  # возможные заклинания
+
+    if features.hota_has_mirror_arena:
+        reader.u8()  # доступно ли исследование заклинаний (HotA)
 
     for _ in range(reader.u32()):  # события города
         reader.string()  # название
@@ -390,7 +522,7 @@ def _read_town(reader: BinaryReader, features: MapFeatures) -> None:
         reader.u16()  # первое срабатывание
         reader.u8()  # период повтора
         reader.bytes_(17)
-        reader.bytes_(BUILDINGS_MASK)  # новые постройки
+        reader.bytes_(features.buildings_mask_bytes)  # новые постройки
         reader.bytes_(RESOURCE_COUNT * 2)  # прирост существ
         reader.bytes_(4)
 
@@ -475,15 +607,7 @@ def _read_abandoned_mine(reader: BinaryReader, features: MapFeatures) -> None:
 #: Типы с собственной начинкой, длина которой ещё не установлена.
 #: Список сокращается по мере разбора; порядок работ задаёт
 #: tools/object_coverage.py — по числу карт, которые тип разблокирует.
-_TYPES_WITH_UNKNOWN_PAYLOAD = frozenset(
-    {
-        Obj.EVENT,
-        Obj.PANDORAS_BOX,
-        Obj.SEER_HUT,
-        Obj.QUEST_GUARD,
-        Obj.BORDER_GATE,
-    }
-)
+_TYPES_WITH_UNKNOWN_PAYLOAD: frozenset[int] = frozenset()
 
 
 def _has_no_payload(object_id: int, subid: int) -> bool:
