@@ -156,6 +156,70 @@ class MapFeatures:
         """Поле неизвестного назначения (levelHOTA9). На наших картах всегда 0."""
         return self.is_hota and self.hota_level > 8
 
+    @property
+    def hota_has_combined_artifacts(self) -> bool:
+        """Запрет составных артефактов (levelHOTA1)."""
+        return self.is_hota and self.hota_level > 0
+
+    @property
+    def hota_has_round_limit(self) -> bool:
+        """Ограничение числа раундов (levelHOTA3)."""
+        return self.is_hota and self.hota_level > 2
+
+    @property
+    def hota_has_recruitment_flags(self) -> bool:
+        """Запрет найма героев по игрокам, 8 флагов (levelHOTA5)."""
+        return self.is_hota and self.hota_level > 4
+
+    @property
+    def hota_has_scripts(self) -> bool:
+        """Собственная система событий HotA (levelHOTA9)."""
+        return self.is_hota and self.hota_level > 8
+
+    # --- ширины идентификаторов -----------------------------------------
+
+    @property
+    def artifact_id_bytes(self) -> int:
+        """Идентификатор артефакта: байт в RoE, два начиная с AB."""
+        return 2 if self.is_ab_or_later else 1
+
+    @property
+    def creature_id_bytes(self) -> int:
+        """Идентификатор существа: байт в RoE, два начиная с AB."""
+        return 2 if self.is_ab_or_later else 1
+
+    @property
+    def artifact_slots(self) -> int:
+        """Слотов снаряжения у героя. SoD добавил девятнадцатый."""
+        return 19 if self.is_sod_or_later else 18
+
+    @property
+    def hero_slot_has_scroll_spell(self) -> bool:
+        """С подверсии HotA 5 к каждому слоту добавлены два байта под свиток."""
+        return self.is_hota and self.hota_level > 4
+
+    # --- длины битовых масок --------------------------------------------
+
+    @staticmethod
+    def _mask_bytes(count: int) -> int:
+        return (count + 7) // 8
+
+    @property
+    def heroes_bytes(self) -> int:
+        return self._mask_bytes(self.heroes)
+
+    @property
+    def artifacts_bytes(self) -> int:
+        return self._mask_bytes(self.artifacts)
+
+    @property
+    def spells_bytes(self) -> int:
+        return self._mask_bytes(self.spells)
+
+    @property
+    def skills_bytes(self) -> int:
+        return self._mask_bytes(self.skills)
+
 
 def features_for(format_: MapFormat, hota_level: int = 0) -> MapFeatures:
     """Собрать набор признаков для версии формата.
