@@ -76,7 +76,7 @@ def _slot_size(features: MapFeatures) -> int:
     return size
 
 
-def _read_artifacts(reader: BinaryReader, features: MapFeatures) -> HeroArtifacts:
+def read_hero_artifacts(reader: BinaryReader, features: MapFeatures) -> HeroArtifacts:
     artifacts = HeroArtifacts(present=reader.u8())
     if not artifacts.present:
         return artifacts
@@ -126,7 +126,7 @@ def read_predefined_heroes(
             skill_count = reader.u32()
             hero.secondary_skills = reader.bytes_(skill_count * 2)
 
-        hero.artifacts = _read_artifacts(reader, features)
+        hero.artifacts = read_hero_artifacts(reader, features)
 
         if reader.u8():
             hero.biography = reader.string()

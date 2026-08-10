@@ -28,6 +28,7 @@ from h3m import conditions, options
 from h3m.container import read_map_bytes, write_map_bytes
 from h3m.header import MapHeader, read_header, write_header
 from h3m.heroes import PredefinedHeroes, read_predefined_heroes, write_predefined_heroes
+from h3m.instances import ObjectInstance, read_objects, write_objects
 from h3m.objects import ObjectTemplate, read_object_templates, write_object_templates
 from h3m.players import PlayerInfo, read_players, write_players
 from h3m.stream import BinaryReader, BinaryWriter
@@ -49,6 +50,7 @@ class H3Map:
     predefined_heroes: PredefinedHeroes | None = None
     terrain: TerrainMap | None = None
     object_templates: list[ObjectTemplate] | None = None
+    objects: list[ObjectInstance] | None = None
 
     tail: bytes = b""
     """Ещё не разобранная часть файла. Пишется обратно без изменений."""
@@ -147,6 +149,18 @@ def parse(data: bytes) -> H3Map:
         parsed.stopped_at = str(exc)
         log.debug("Разбор остановлен на байте %d: %s", boundary, exc)
 
+    if parsed.object_templates is not None:
+        objects_boundary = reader.pos
+        try:
+            parsed.objects = read_objects(
+                reader, parsed.object_templates, header.features
+            )
+        except options.UnsupportedBlockError as exc:
+            reader.pos = objects_boundary
+            parsed.objects = None
+            parsed.stopped_at = str(exc)
+            log.debug("Объекты не разобраны: %s", exc)
+
     parsed.tail = reader.bytes_(reader.remaining)
     reader.expect_end()
 
@@ -178,6 +192,8 @@ def serialize(parsed: H3Map) -> bytes:
         write_terrain(writer, parsed.terrain)
     if parsed.object_templates is not None:
         write_object_templates(writer, parsed.object_templates)
+    if parsed.objects is not None:
+        write_objects(writer, parsed.objects)
 
     writer.bytes_(parsed.tail)
     return writer.getvalue()
