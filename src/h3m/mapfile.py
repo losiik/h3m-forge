@@ -26,6 +26,7 @@ from pathlib import Path
 
 from h3m import conditions, options
 from h3m.container import read_map_bytes, write_map_bytes
+from h3m.events import EventsBlock, read_events, write_events
 from h3m.header import MapHeader, read_header, write_header
 from h3m.heroes import PredefinedHeroes, read_predefined_heroes, write_predefined_heroes
 from h3m.instances import ObjectInstance, read_objects, write_objects
@@ -51,6 +52,7 @@ class H3Map:
     terrain: TerrainMap | None = None
     object_templates: list[ObjectTemplate] | None = None
     objects: list[ObjectInstance] | None = None
+    events: EventsBlock | None = None
 
     tail: bytes = b""
     """Ещё не разобранная часть файла. Пишется обратно без изменений."""
@@ -155,11 +157,21 @@ def parse(data: bytes) -> H3Map:
             parsed.objects = read_objects(
                 reader, parsed.object_templates, header.features
             )
+            parsed.events = read_events(reader, header.features)
         except options.UnsupportedBlockError as exc:
             reader.pos = objects_boundary
             parsed.objects = None
+            parsed.events = None
             parsed.stopped_at = str(exc)
             log.debug("Объекты не разобраны: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            # Глобальные события идут последними; их поломка не должна ронять
+            # уже разобранные объекты.
+            reader.pos = objects_boundary
+            parsed.objects = None
+            parsed.events = None
+            parsed.stopped_at = f"события: {type(exc).__name__}: {exc}"
+            log.debug("События не разобраны: %s", exc)
 
     parsed.tail = reader.bytes_(reader.remaining)
     reader.expect_end()
@@ -194,6 +206,8 @@ def serialize(parsed: H3Map) -> bytes:
         write_object_templates(writer, parsed.object_templates)
     if parsed.objects is not None:
         write_objects(writer, parsed.objects)
+    if parsed.events is not None:
+        write_events(writer, parsed.events, parsed.header.features)
 
     writer.bytes_(parsed.tail)
     return writer.getvalue()

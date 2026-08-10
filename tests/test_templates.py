@@ -25,19 +25,40 @@ game_required = pytest.mark.skipif(
 )
 
 MAX_PLAUSIBLE_OBJECTS = 30_000
+MAX_PLAUSIBLE_EVENTS = 1_000
+FILE_TRAILING_BYTES = 124
+"""Хвост нулей в конце файла. Одинаков у всех карт, где разбор дошёл до конца."""
 
 
 @game_required
 @pytest.mark.parametrize("map_path", ALL_MAPS, ids=lambda p: p.name)
-def test_objects_count_follows_templates(map_path: Path) -> None:
-    """Сразу за таблицей шаблонов лежит правдоподобное число объектов."""
-    parsed = mapfile.load(map_path)
-    if parsed.object_templates is None:
-        pytest.skip(f"разбор остановлен: {parsed.stopped_at}")
+def test_parse_boundary_is_plausible(map_path: Path) -> None:
+    """За разобранной частью лежит то, что и должно лежать.
 
-    assert len(parsed.tail) >= 4
-    (objects_count,) = struct.unpack_from("<I", parsed.tail, 0)
-    assert objects_count < MAX_PLAUSIBLE_OBJECTS
+    Оракул привязан к границе разбора и обязан переезжать вместе с ней —
+    иначе, дойдя до следующего блока, тест начинает молча проверять не то.
+    Дважды на этом обжёгся, поэтому здесь он один и сам определяет, где
+    сейчас граница.
+    """
+    parsed = mapfile.load(map_path)
+
+    if parsed.events is not None:
+        # Разбор дошёл до конца файла — самая сильная проверка из возможных.
+        assert parsed.tail == b""
+        assert len(parsed.events.trailing) == FILE_TRAILING_BYTES
+        return
+
+    if parsed.objects is not None:
+        (events_count,) = struct.unpack_from("<I", parsed.tail, 0)
+        assert events_count < MAX_PLAUSIBLE_EVENTS
+        return
+
+    if parsed.object_templates is not None:
+        (objects_count,) = struct.unpack_from("<I", parsed.tail, 0)
+        assert objects_count < MAX_PLAUSIBLE_OBJECTS
+        return
+
+    pytest.skip(f"разбор остановлен: {parsed.stopped_at}")
 
 
 @game_required
