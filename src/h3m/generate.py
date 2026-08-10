@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import logging
 
-from h3m import conditions, defaults, options
+from h3m import catalog, conditions, defaults, options
 from h3m.events import EventsBlock
 from h3m.format import MapFeatures, MapFormat, features_for
 from h3m.header import MapHeader
 from h3m.heroes import PredefinedHeroes
 from h3m.mapfile import H3Map
+from h3m.objtypes import Obj
 from h3m.players import NO_HERO, PLAYER_COUNT, PlayerInfo
 from h3m.terrain import TILE_SIZE, Terrain, TerrainMap
 
@@ -175,6 +176,48 @@ def new_map(
         "Создана карта %dx%d, слоёв %d, игроков %d", size, size, levels, players
     )
     return parsed
+
+
+#: Смещение объекта-города относительно координаты в записи игрока.
+#: Строго (+2, 0) во всех 182 стартовых городах карт SoD из поставки.
+TOWN_ANCHOR_OFFSET_X = 2
+
+#: Значения из настоящих карт для игрока со стартовым городом.
+GENERATE_HERO_AT_MAIN_TOWN = 1  # 176 из 182
+RANDOM_MAIN_TOWN_TYPE = 0xFF  # 127 из 182
+
+
+def place_starting_town(
+    parsed: H3Map,
+    player_index: int,
+    x: int,
+    y: int,
+    z: int = 0,
+) -> None:
+    """Поставить игроку стартовый город в позиции объекта ``(x, y, z)``.
+
+    Координата, записываемая в запись игрока, **не совпадает** с координатой
+    объекта: город стоит на два тайла правее. Это не догадка — смещение (+2, 0)
+    выдержано во всех 182 стартовых городах карт SoD из поставки, без
+    исключений.
+    """
+    player = parsed.players[player_index]
+    if not player.is_playable:
+        raise ValueError(f"игрок {player_index} не играбелен")
+
+    town = catalog.borrow(Obj.TOWN, with_payload=True)
+    payload = catalog.set_town_owner(town.payload, player_index)
+    catalog.place(parsed, town, x, y, z, payload=payload)
+
+    player.has_main_town = 1
+    player.generate_hero_at_main_town = GENERATE_HERO_AT_MAIN_TOWN
+    player.main_town_type = RANDOM_MAIN_TOWN_TYPE
+    player.main_town_pos = (x - TOWN_ANCHOR_OFFSET_X, y, z)
+
+    log.debug(
+        "Игроку %d поставлен город: объект (%d,%d,%d), запись (%d,%d,%d)",
+        player_index, x, y, z, x - TOWN_ANCHOR_OFFSET_X, y, z,
+    )
 
 
 def tile_count(parsed: H3Map) -> int:
