@@ -164,6 +164,10 @@ def _read_payload(
         if reader.u8():  # есть сообщение
             reader.string()
             reader.bytes_(RESOURCE_COUNT * 4)
+            # Здесь артефакт остаётся двухбайтовым даже в HotA. Расширение до
+            # четырёх байт действует в квестах, наградах и содержимом ящика,
+            # но не тут: попытка применить его и сюда дала 20 расхождений
+            # по −2 на монстрах, которые до того сходились.
             reader.bytes_(features.artifact_id_bytes)
         reader.u8()  # никогда не бежит
         reader.u8()  # не растёт
@@ -507,7 +511,7 @@ def _read_box_content(reader: BinaryReader, features: MapFeatures) -> None:
     reader.bytes_(PRIMARY_SKILLS)  # первичные навыки
 
     reader.bytes_(reader.u8() * 2)  # вторичные навыки
-    reader.bytes_(reader.u8() * features.artifact_id_bytes)  # артефакты
+    reader.bytes_(reader.u8() * _quest_artifact_bytes(features))  # артефакты
     reader.bytes_(reader.u8())  # заклинания
     reader.bytes_(reader.u8() * (features.creature_id_bytes + 2))  # существа
 
