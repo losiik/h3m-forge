@@ -254,10 +254,16 @@ def _read_payload(
             reader.bytes_(4 + 4)  # содержимое и заклинание
         return
 
-    if object_id == Obj.UNIVERSITY:
+    if object_id == Obj.UNIVERSITY or (
+        object_id == Obj.HOTA_CUSTOM_OBJECT_2 and subid == 0
+    ):
+        # Мореходная академия HotA читается как университет.
         if features.hota_has_recruitment_flags:
             reader.bytes_(4 + features.skills_bytes)
         return
+
+    if object_id == Obj.HOTA_CUSTOM_OBJECT_2:
+        return  # прочие подтипы начинки не имеют
 
     if object_id == Obj.BLACK_MARKET:
         if features.hota_has_recruitment_flags:
@@ -277,6 +283,18 @@ def _read_payload(
 
     if object_id in _REWARD_WITH_AMOUNT:
         _read_reward_with_amount(reader, features)
+        return
+
+    if object_id == Obj.HOTA_CUSTOM_OBJECT_1:
+        # Лампа и бочка отдают ресурс с количеством, обломки и сосуд — нет.
+        # Длины измерены на картах поставки: 18 байт против 8, и совпали
+        # с раскладкой из исходников VCMI.
+        if features.hota_has_recruitment_flags:
+            if subid in (0, 1):
+                reader.i32()
+                reader.bytes_(14)
+            else:
+                reader.bytes_(8)
         return
 
     if object_id == Obj.HERO_PLACEHOLDER:
@@ -425,6 +443,14 @@ def _read_seer_hut(reader: BinaryReader, features: MapFeatures) -> None:
         return
 
     reward = reader.u8()
+
+    # HotA добавил типы наград сверх известных десяти — встречался тип 15.
+    # Была гипотеза, что запись награды у него стала фиксированной, 13 байт
+    # независимо от типа: измерение на четырёх случаях дало ровно 13 и для
+    # типа 0, и для типа 15. Проверка не подтвердила — ошибок на хижинах стало
+    # 7 вместо 8, зато на монстрах 21 вместо 17, то есть они просто переехали.
+    # Четырёх наблюдений мало; оставляю честную ошибку вместо догадки.
+
     match reward:
         case 0:  # без награды
             pass

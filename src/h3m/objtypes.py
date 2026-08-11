@@ -72,6 +72,14 @@ class Obj(IntEnum):
     WAGON = 105
     WARRIORS_TOMB = 108
     WITCH_HUT = 113
+    HOTA_CUSTOM_OBJECT_1 = 145
+    """Морская мелочь HotA: 0 — древняя лампа, 1 — бочка, 2 — обломки,
+    3 — сосуд с маной. Номер типа установлен по картам поставки, подтипы
+    сошлись с именами спрайтов: avtglam, AVAbrrlw, AVAcratw, AVAmnbtw."""
+
+    HOTA_CUSTOM_OBJECT_2 = 146
+    HOTA_CUSTOM_OBJECT_3 = 147
+
     RANDOM_MONSTER_L5 = 162
     RANDOM_MONSTER_L6 = 163
     RANDOM_MONSTER_L7 = 164
