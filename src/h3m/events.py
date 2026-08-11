@@ -22,6 +22,9 @@ RESOURCE_COUNT = 7
 RESERVED = 17
 """Нулевые байты в конце записи события."""
 
+FILE_TRAILING = 124
+"""Хвост нулей в конце файла. Одинаков у всех карт из поставки."""
+
 
 @dataclass(slots=True)
 class TimedEvent:
@@ -81,6 +84,20 @@ def read_events(reader: BinaryReader, features: MapFeatures) -> EventsBlock:
     ]
 
     block = EventsBlock(events=events, trailing=reader.bytes_(reader.remaining))
+
+    if len(block.trailing) != FILE_TRAILING:
+        # Блок событий забирает остаток файла целиком, поэтому «успешно
+        # прочитается» почти из любого мусора. Единственный признак, что мы
+        # действительно попали в него, а не в середину чужих данных, — длина
+        # хвоста: у всех 157 карт классических форматов она ровно 124 байта.
+        #
+        # Без этой проверки парсер объявлял успехом карты, разобранные неверно,
+        # и завышал метрику готовности.
+        raise ValueError(
+            f"хвост файла {len(block.trailing)} байт вместо {FILE_TRAILING} — "
+            "блок событий прочитан не с того места"
+        )
+
     log.debug("Глобальных событий: %d, хвост %d байт", len(events), len(block.trailing))
     return block
 

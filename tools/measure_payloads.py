@@ -235,8 +235,15 @@ def main() -> None:
         deltas, landed = measure(map_path, first_error)
         exact += landed
         inexact += not landed
-        for object_id, counter in deltas.items():
-            totals[object_id].update(counter)
+
+        # Статистику берём только с карт, где проход завершился ровно в
+        # расчётной точке. Если измеритель где-то сбился, все его измерения
+        # после сбоя — мусор, и они забивают отчёт ложными расхождениями:
+        # именно так монстры дважды попадали в подозреваемые, хотя разбирались
+        # верно.
+        if landed:
+            for object_id, counter in deltas.items():
+                totals[object_id].update(counter)
         if first_error[0]:
             object_id, subid, delta, index = first_error[0]
             culprits[(type_name(object_id), subid, delta)] += 1
