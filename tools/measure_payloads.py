@@ -102,22 +102,57 @@ def _chain_ok(
 
 
 def _find_next_header(
-    data: bytes, start: int, size: int, levels: int, templates: list, features
+    data: bytes,
+    start: int,
+    size: int,
+    levels: int,
+    templates: list,
+    features,
+    computed: int | None,
 ) -> int | None:
-    """Смещение настоящего следующего заголовка от ``start``."""
-    for offset in range(0, MAX_SCAN):
-        if _chain_ok(
+    """Смещение настоящего следующего заголовка от ``start``.
+
+    Поиск идёт **от вычисленной позиции в обе стороны**, а не от начала
+    начинки. Это снимает смещение измерения: при поиске слева направо ложное
+    раннее совпадение возможно, а позднее нет, поэтому отрицательные
+    расхождения систематически преувеличивались. Здесь же кандидаты
+    перебираются по удалённости от нашей оценки, и обе стороны равноправны.
+    """
+    # Если наша позиция сама выглядит заголовком — верим ей и не ищем.
+    #
+    # Без этого проверка на три объекта вперёд распространяет ошибку назад:
+    # когда настоящая поломка случится через пару объектов, цепочка оборвётся
+    # и виноватым окажется предыдущий, ни в чём не повинный объект. Так у
+    # декоративных объектов без начинки получались расхождения в 64 и 88 байт.
+    if computed is not None and looks_like_header(
+        data, start + computed, size, levels, len(templates)
+    ):
+        return computed
+
+    candidates: list[int]
+    if computed is None:
+        candidates = list(range(MAX_SCAN))
+    else:
+        candidates = [computed]
+        for step in range(1, MAX_SCAN):
+            candidates.append(computed + step)
+            if computed - step >= 0:
+                candidates.append(computed - step)
+
+    for offset in candidates:
+        if 0 <= offset < len(data) - start and _chain_ok(
             data, start + offset, size, levels, templates, features, LOOKAHEAD
         ):
             return offset
     return None
 
 
-def measure(path) -> tuple[dict[int, Counter[int]], bool]:
+def measure(path, first_error: list) -> tuple[dict[int, Counter[int]], bool]:
     """Пройти по объектам карты, измеряя длину каждой начинки.
 
     Возвращает распределение разниц по типам и признак того, что проход
-    закончился ровно там, где должен.
+    закончился ровно там, где должен. В ``first_error`` кладётся первое
+    расхождение — оно и есть настоящая причина, всё остальное последствия.
     """
     data = read_map_bytes(path)
     parsed = parse(data)
@@ -162,13 +197,20 @@ def measure(path) -> tuple[dict[int, Counter[int]], bool]:
             actual = target_end - start
         else:
             actual = _find_next_header(
-                data, start, size, levels, templates, features
+                data, start, size, levels, templates, features, computed
             )
             if actual is None:
                 return deltas, False
 
         if computed is not None:
             deltas[template.object_id][actual - computed] += 1
+            if actual != computed and first_error[0] is None:
+                first_error[0] = (
+                    template.object_id,
+                    template.object_subid,
+                    actual - computed,
+                    index,
+                )
 
         reader.pos = start + actual
 
@@ -179,6 +221,7 @@ def main() -> None:
     log_path = setup_logging("measure_payloads")
 
     totals: dict[int, Counter[int]] = defaultdict(Counter)
+    culprits: Counter[tuple[str, int, int]] = Counter()
     exact = inexact = 0
 
     for map_path in paths.iter_maps():
@@ -188,11 +231,15 @@ def main() -> None:
         if parsed.objects is not None:
             continue
 
-        deltas, landed = measure(map_path)
+        first_error: list = [None]
+        deltas, landed = measure(map_path, first_error)
         exact += landed
         inexact += not landed
         for object_id, counter in deltas.items():
             totals[object_id].update(counter)
+        if first_error[0]:
+            object_id, subid, delta, index = first_error[0]
+            culprits[(type_name(object_id), subid, delta)] += 1
 
     log.info("Карт измерено: %d, из них дошли ровно до конца: %d", exact + inexact, exact)
     log.info("")
@@ -211,6 +258,14 @@ def main() -> None:
             right,
             sum(wrong.values()),
             dict(sorted(wrong.items(), key=lambda kv: -kv[1])[:4]),
+        )
+
+    log.info("")
+    log.info("=== Первая ошибка в карте (это и есть причины) ===")
+    for (name, subid, delta), count in culprits.most_common(15):
+        log.info(
+            "  %-24s subid=%-4d не хватает %+4d байт — на %d картах",
+            name, subid, delta, count,
         )
 
     log.info("")

@@ -390,6 +390,17 @@ def _read_hero_placeholder(reader: BinaryReader, features: MapFeatures) -> None:
         reader.bytes_(reader.i32() * 4)  # стартовые артефакты
 
 
+def _quest_artifact_bytes(features: MapFeatures) -> int:
+    """Ширина идентификатора артефакта в квестах и наградах.
+
+    В HotA он четырёхбайтовый, тогда как в остальных местах формата остаётся
+    двухбайтовым. Установлено измерением: награда-артефакт оказалась на шесть
+    байт длиннее, чем в SoD, при том что все прочие награды — ровно на четыре.
+    Разница в два байта и есть расширение идентификатора.
+    """
+    return 4 if features.is_hota else features.artifact_id_bytes
+
+
 def _read_quest(reader: BinaryReader, features: MapFeatures) -> int:
     """Условие квеста: чего требует хижина провидца, страж или врата.
 
@@ -398,6 +409,14 @@ def _read_quest(reader: BinaryReader, features: MapFeatures) -> int:
     единственное место в квестах, где отсутствие данных выражается не флагом,
     а значением типа.
     """
+    if features.is_hota:
+        # HotA добавил перед условием четырёхбайтовый префикс, на всех
+        # виденных картах равный единице. Похоже на версию структуры квеста.
+        # Без него первым байтом читался префикс, а не тип условия, и дальше
+        # разбор шёл по совершенно чужой раскладке — отсюда брались
+        # «награды» с невозможными номерами 75 и 82.
+        reader.u32()
+
     mission = reader.u8()
 
     match mission:
@@ -408,7 +427,7 @@ def _read_quest(reader: BinaryReader, features: MapFeatures) -> int:
         case 2:  # первичные навыки
             reader.bytes_(PRIMARY_SKILLS)
         case 5:  # принести артефакты
-            reader.bytes_(reader.u8() * features.artifact_id_bytes)
+            reader.bytes_(reader.u8() * _quest_artifact_bytes(features))
         case 6:  # привести войско
             reader.bytes_(reader.u8() * (features.creature_id_bytes + 2))
         case 7:  # принести ресурсы
@@ -464,7 +483,7 @@ def _read_seer_hut(reader: BinaryReader, features: MapFeatures) -> None:
         case 6 | 7:  # первичный навык, вторичный навык
             reader.bytes_(2)
         case 8:  # артефакт
-            reader.bytes_(features.artifact_id_bytes)
+            reader.bytes_(_quest_artifact_bytes(features))
         case 9:  # заклинание
             reader.u8()
         case 10:  # существа
@@ -472,7 +491,9 @@ def _read_seer_hut(reader: BinaryReader, features: MapFeatures) -> None:
         case _:
             raise ValueError(f"неизвестный тип награды: {reward}")
 
-    reader.bytes_(2)
+    # Хвост записи награды: два байта в SoD, шесть в HotA. Измерено на шести
+    # типах наград сразу — все оказались длиннее ровно на четыре байта.
+    reader.bytes_(6 if features.is_hota else 2)
 
 
 def _read_box_content(reader: BinaryReader, features: MapFeatures) -> None:
@@ -493,6 +514,16 @@ def _read_box_content(reader: BinaryReader, features: MapFeatures) -> None:
 
     reader.bytes_(8)
 
+    if features.is_hota:
+        # Четырнадцать байт, назначение не установлено.
+        #
+        # Измерено независимо на двух типах, использующих это содержимое:
+        # ящику Пандоры не хватало ровно +14, событию на карте +13. Разница в
+        # единицу объяснилась тем, что событию я по подсказке из чужого кода
+        # добавлял отдельный байт, которого там нет: 14 − 1 = 13. Совпадение
+        # двух независимых измерений и есть подтверждение.
+        reader.bytes_(14)
+
 
 def _read_map_event_object(reader: BinaryReader, features: MapFeatures) -> None:
     """Событие, расставленное на карте: содержимое ящика плюс правила срабатывания."""
@@ -501,9 +532,6 @@ def _read_map_event_object(reader: BinaryReader, features: MapFeatures) -> None:
     reader.u8()  # срабатывает ли у ИИ
     reader.u8()  # исчезает ли после посещения
     reader.bytes_(4)
-
-    if features.hota_has_round_limit:
-        reader.u8()  # срабатывает ли у человека (HotA)
 
 
 SPELLS_MASK = 9
@@ -616,6 +644,11 @@ def _read_hero(reader: BinaryReader, features: MapFeatures) -> None:
             reader.bytes_(PRIMARY_SKILLS)
 
     reader.bytes_(16)
+
+    if features.is_hota:
+        # Шесть байт, назначение не установлено. Измерено на девяти героях
+        # разных подтипов в шести картах — везде ровно +6.
+        reader.bytes_(6)
 
 
 def _read_random_dwelling(
