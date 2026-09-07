@@ -87,6 +87,27 @@ class TerrainMap:
         raw = self.data[start : start + TILE_SIZE]
         return Tile(*raw)
 
+    def set_tile(self, x: int, y: int, z: int, terrain: int, view: int) -> None:
+        """Заменить рельеф клетки.
+
+        Вид тайла задаётся явно: у каждого рельефа свой набор «заливки», и
+        произвольный номер даёт либо мусор на экране, либо падение редактора.
+        """
+        start = self.offset_of(x, y, z)
+        data = bytearray(self.data)
+        data[start] = terrain
+        data[start + 1] = view
+        self.data = bytes(data)
+
+    def fill(self, terrain: int, views: tuple[int, ...], seed: int = 0) -> None:
+        """Залить всю карту одним рельефом, чередуя виды тайлов."""
+        tiles = bytearray(self.data)
+        for index in range(self.tile_count):
+            offset = index * TILE_SIZE
+            tiles[offset] = terrain
+            tiles[offset + 1] = views[(index * 2654435761 + seed) % len(views)]
+        self.data = bytes(tiles)
+
     def terrain_histogram(self) -> dict[int, int]:
         """Сколько тайлов каждого типа рельефа — для проверок и отчётов."""
         counts: dict[int, int] = {}

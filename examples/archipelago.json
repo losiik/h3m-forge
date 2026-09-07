@@ -1,0 +1,13 @@
+{
+  "name": "Архипелаг — h3m-forge",
+  "size": 72,
+  "seed": 42,
+  "decoration_density": 0.22,
+  "zones": [
+    {"id": "west", "terrain": "grass", "player": 0},
+    {"id": "north", "terrain": "snow"},
+    {"id": "east", "terrain": "highlands", "player": 1},
+    {"id": "south", "terrain": "rough"}
+  ],
+  "connections": [["west", "north"], ["north", "east"], ["east", "south"], ["south", "west"]]
+}

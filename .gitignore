@@ -29,6 +29,9 @@ __pycache__/
 build/
 dist/
 .venv/
+.venv-mcp/
+# Local MCP launch paths; portable example is in examples/codex.mcp.toml.
+.codex/config.toml
 venv/
 .pytest_cache/
 .mypy_cache/

@@ -327,6 +327,9 @@ def _read_payload(
 
     if object_id == Obj.PANDORAS_BOX:
         _read_box_content(reader, features)
+        if features.is_hota and features.hota_level >= 5:
+            reader.u8()
+        _read_box_hota_extension(reader, features)
         return
 
     if object_id == Obj.EVENT:
@@ -522,20 +525,18 @@ def _read_box_content(reader: BinaryReader, features: MapFeatures) -> None:
 
     reader.bytes_(8)
 
-    if features.is_hota:
-        # Четырнадцать байт, назначение не установлено.
-        #
-        # Измерено независимо на двух типах, использующих это содержимое:
-        # ящику Пандоры не хватало ровно +14, событию +13 — разница в единицу
-        # объяснилась лишним байтом, который я добавлял событию по подсказке
-        # из чужого кода. Совпадение двух независимых измерений и есть
-        # подтверждение.
-        #
-        # Часть записей (шесть ящиков и шесть событий из сотни) требует ещё
-        # двух байт. Признак, по которому они отличаются, не установлен;
-        # попытка сделать 16 байт для всех ухудшила результат вчетверо, так
-        # что это именно вариант, а не общее правило.
-        reader.bytes_(14)
+
+def _read_box_hota_extension(reader: BinaryReader, features: MapFeatures) -> None:
+    # VCMI CMapLoaderH3M::readBoxHotaContent. For EVENT these fields follow
+    # activation flags, whereas PANDORAS_BOX has a one-byte prefix instead.
+    if not features.is_hota:
+        return
+    if features.hota_level >= 5:
+        reader.bytes_(8)  # movement mode and amount
+    if features.hota_level >= 6:
+        reader.bytes_(4)  # difficulty mask
+    if features.hota_level >= 9 and reader.u8():
+        reader.bytes_(5)  # event-system ID and synchronization flag
 
 
 def _read_map_event_object(reader: BinaryReader, features: MapFeatures) -> None:
@@ -545,6 +546,9 @@ def _read_map_event_object(reader: BinaryReader, features: MapFeatures) -> None:
     reader.u8()  # срабатывает ли у ИИ
     reader.u8()  # исчезает ли после посещения
     reader.bytes_(4)
+    if features.is_hota and features.hota_level >= 3:
+        reader.u8()  # human activation; NOT part of the reward extension
+    _read_box_hota_extension(reader, features)
 
 
 SPELLS_MASK = 9

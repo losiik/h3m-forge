@@ -39,6 +39,11 @@ class TimedEvent:
     first_day: int
     repeat_days: int
     reserved: bytes
+    affected_difficulties: int = 31
+    uses_event_system: int = 0
+    script_event_id: int = 0
+    synchronize_objects: int = 0
+    legacy_hota_padding: bytes = bytes(14)
 
     @property
     def name_text(self) -> str:
@@ -68,8 +73,9 @@ def read_events(reader: BinaryReader, features: MapFeatures) -> EventsBlock:
     if count > 1000:
         raise ValueError(f"неправдоподобное число событий: {count}")
 
-    events = [
-        TimedEvent(
+    events = []
+    for _ in range(count):
+        event = TimedEvent(
             name=reader.string(),
             message=reader.string(),
             resources=reader.bytes_(RESOURCE_COUNT * 4),
@@ -80,8 +86,16 @@ def read_events(reader: BinaryReader, features: MapFeatures) -> EventsBlock:
             repeat_days=reader.u8(),
             reserved=reader.bytes_(RESERVED),
         )
-        for _ in range(count)
-    ]
+        if features.is_hota and features.hota_level >= 7:
+            event.affected_difficulties = reader.u32()
+        if features.hota_has_scripts:
+            event.uses_event_system = reader.u8()
+            if event.uses_event_system:
+                event.script_event_id = reader.u32()
+                event.synchronize_objects = reader.u8()
+        if features.is_hota and 5 <= features.hota_level < 7:
+            event.legacy_hota_padding = reader.bytes_(14)
+        events.append(event)
 
     block = EventsBlock(events=events, trailing=reader.bytes_(reader.remaining))
 
@@ -118,5 +132,14 @@ def write_events(
         writer.u16(event.first_day)
         writer.u8(event.repeat_days)
         writer.bytes_(event.reserved)
+        if features.is_hota and features.hota_level >= 7:
+            writer.u32(event.affected_difficulties)
+        if features.hota_has_scripts:
+            writer.u8(event.uses_event_system)
+            if event.uses_event_system:
+                writer.u32(event.script_event_id)
+                writer.u8(event.synchronize_objects)
+        if features.is_hota and 5 <= features.hota_level < 7:
+            writer.bytes_(event.legacy_hota_padding)
 
     writer.bytes_(block.trailing)

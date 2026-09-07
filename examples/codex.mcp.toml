@@ -1,0 +1,11 @@
+# Example: replace these three absolute paths for another machine.
+# Add this table to the project's .codex/config.toml (trusted projects only).
+[mcp_servers.h3m-forge]
+command = 'C:\Users\serge\PycharmProjects\h3m-forge\.venv-mcp\Scripts\python.exe'
+args = ['-m', 'h3m.mcp_server', '--workspace', 'C:\Users\serge\PycharmProjects\h3m-forge', '--game-dir', 'C:\Games\Heroes of Might and Magic III Complete']
+startup_timeout_sec = 30
+tool_timeout_sec = 600
+enabled = true
+
+[mcp_servers.h3m-forge.env]
+PYTHONUTF8 = '1'

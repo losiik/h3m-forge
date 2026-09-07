@@ -26,6 +26,10 @@ log = logging.getLogger(__name__)
 
 MASK_ROWS = 6
 MASK_COLUMNS = 8
+
+ANCHOR_COLUMN = MASK_COLUMNS - 1
+ANCHOR_ROW = MASK_ROWS - 1
+"""Якорь объекта — правая нижняя клетка сетки."""
 TRAILING_BYTES = 16
 """Хвост шаблона, назначение которого в VCMI просто пропускается."""
 
@@ -62,26 +66,32 @@ class ObjectTemplate:
         return decode(self.animation_file)
 
     def blocked_cells(self) -> list[tuple[int, int]]:
-        """Клетки, которые объект перекрывает, в координатах относительно якоря.
+        """Клетки, которые объект перекрывает, смещениями от якоря.
 
-        Разворачивает хранимую раскладку: строки снизу вверх, столбцы справа
-        налево, бит проходимости инвертирован.
+        Якорь объекта — **правая нижняя** клетка сетки 8x6, поэтому смещения
+        нулевые или отрицательные: объект растёт влево и вверх от своей
+        позиции. Бит проходимости инвертирован — ноль означает «занято».
+
+        Соответствие бит-клетка проверено на городе: у него маска даёт блок
+        5x3, упирающийся в якорь правым нижним углом, что совпадает с тем, как
+        город выглядит на карте. Зеркальные варианты раскладки давали отпечаток
+        в стороне от объекта.
         """
-        cells: list[tuple[int, int]] = []
-        for row in range(MASK_ROWS):
-            for column in range(MASK_COLUMNS):
-                if not (self.block_mask[row] >> column) & 1:
-                    cells.append((MASK_COLUMNS - 1 - column, MASK_ROWS - 1 - row))
-        return cells
+        return [
+            (column - ANCHOR_COLUMN, row - ANCHOR_ROW)
+            for row in range(MASK_ROWS)
+            for column in range(MASK_COLUMNS)
+            if not (self.block_mask[row] >> column) & 1
+        ]
 
     def visitable_cells(self) -> list[tuple[int, int]]:
-        """Клетки, с которых объект можно посетить."""
-        cells: list[tuple[int, int]] = []
-        for row in range(MASK_ROWS):
-            for column in range(MASK_COLUMNS):
-                if (self.visit_mask[row] >> column) & 1:
-                    cells.append((MASK_COLUMNS - 1 - column, MASK_ROWS - 1 - row))
-        return cells
+        """Клетки, с которых объект можно посетить. Здесь единица — «можно»."""
+        return [
+            (column - ANCHOR_COLUMN, row - ANCHOR_ROW)
+            for row in range(MASK_ROWS)
+            for column in range(MASK_COLUMNS)
+            if (self.visit_mask[row] >> column) & 1
+        ]
 
     def allows_terrain(self, terrain: int) -> bool:
         return bool((self.terrain_mask >> terrain) & 1)
