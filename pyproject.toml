@@ -19,9 +19,13 @@ dev = [
 
 [project.scripts]
 h3m-forge-mcp = "h3m.mcp_server:main"
+h3m-forge-scenario = "h3m.scenario_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+h3m = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

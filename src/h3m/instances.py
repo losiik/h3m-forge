@@ -579,46 +579,26 @@ def _read_town(reader: BinaryReader, features: MapFeatures) -> None:
         reader.bytes_(SPELLS_MASK)  # обязательные заклинания
     reader.bytes_(SPELLS_MASK)  # возможные заклинания
 
-    if features.hota_has_mirror_arena:
-        # Два байта. Первый — флаг доступности исследования заклинаний,
-        # назначение второго не установлено. Длина найдена не подгонкой:
-        # проверялось, что сразу за городом начинается корректный заголовок
-        # следующего объекта, и только два байта дают это на 51 городе из 53.
-        reader.bytes_(2)
+    if features.is_hota and features.hota_level>=5:
+        reader.u8()  # spell research
+        reader.bytes_(reader.u32())  # faction-specific buildings
+    elif features.hota_has_mirror_arena:
+        reader.u8()
 
-    for _ in range(reader.u32()):  # события города
-        reader.string()  # название
-        reader.string()  # текст
-        reader.bytes_(RESOURCE_COUNT * 4)  # ресурсы
-        reader.u8()  # каких игроков касается
-        if features.is_sod_or_later:
-            reader.u8()  # касается ли людей
-        reader.u8()  # касается ли ИИ
-        reader.u16()  # первое срабатывание
-        reader.u8()  # период повтора
-        reader.bytes_(17)
-        reader.bytes_(features.buildings_mask_bytes)  # новые постройки
-        reader.bytes_(RESOURCE_COUNT * 2)  # прирост существ
-        reader.bytes_(4)
-
-    if features.is_sod_or_later:
-        reader.u8()  # мировоззрение
+    for _ in range(reader.u32()):
+        reader.string();reader.string()
+        reader.bytes_(RESOURCE_COUNT*4)
+        reader.u8()
+        if features.is_sod_or_later:reader.u8()
+        reader.u8();reader.u16();reader.u16();reader.bytes_(16)
+        if features.is_hota and features.hota_level>=7:reader.u32()
+        if features.hota_has_scripts and reader.u8():reader.bytes_(5)
+        if features.is_hota and features.hota_level>=5:reader.bytes_(14)
+        if features.is_hota and features.hota_level>=7:reader.u8()
+        reader.bytes_(features.buildings_mask_bytes)
+        reader.bytes_(RESOURCE_COUNT*2);reader.bytes_(4)
+    if features.is_sod_or_later:reader.u8()
     reader.bytes_(3)
-
-    if features.is_hota:
-        # Пятьдесят один байт в конце записи города, почти все нулевые.
-        #
-        # Установлено по эталонной карте, сделанной в самом редакторе HotA:
-        # один случайный город на пустой карте, запись зажата между счётчиком
-        # объектов и пустым блоком событий, поэтому её длина известна точно —
-        # 89 байт против наших 38 без хвоста.
-        #
-        # Раньше здесь стояло 5 байт, найденных перебором. Значение давало
-        # восьмикратный отрыв по числу пройденных объектов и выглядело
-        # убедительно, но было неверным: остальные 46 байт — нули, а на нулях
-        # измерение по поиску следующего заголовка слепо. Прямой замер по
-        # эталону снимает эту слепоту полностью.
-        reader.bytes_(51)
 
 
 def _read_hero(reader: BinaryReader, features: MapFeatures) -> None:

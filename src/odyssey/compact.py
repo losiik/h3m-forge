@@ -5,12 +5,14 @@ from math import hypot
 from random import Random
 
 from h3m import catalog, conditions
-from h3m.adventure import Reward, timed_message
+from h3m.adventure import Reward, timed_message, edit_monster
 from h3m.build import sign_payload
 from h3m.pacing import audit_landings, audit_sea_legs, obstacle_cells, shortest_route
 from h3m.terrain import Terrain, TerrainMap
 from h3m.world import scenery_for
 from odyssey import payloads as p
+from odyssey.barriers import place_barriers
+from odyssey.guidance import INTRO, STOPS, course, texts, gate_hint
 from odyssey.navigation import harbours, land_of
 from odyssey.playable import generate as previous, validate, START_ARMY, TACTICAL_SPELLS
 from odyssey.story import ISLANDS as OLD_ISLANDS, Island
@@ -45,8 +47,10 @@ def generate(assets,seed=20262905):
     islands={i.key:i for i in ISLANDS}
     m.header.size=72
     m.header.name='Одиссея: тесные проливы'.encode('cp1251')
-    m.header.description=('Переработка 4. Компактный архипелаг 72x72: короткие переходы, '
-        'шляпа адмирала со старта, бои и решения рядом с пристанями. '
+    m.header.description=('Карта Афины: обзор островов, пронумерованные стоянки и указания курса. '
+        'Компактный архипелаг 72x72: короткие переходы, '
+        'лесистые мысы, утёсы, дюны и каменные столбы в море. '
+        'Шляпа адмирала со старта, бои и решения рядом с пристанями. '
         'От Трои до Пенелопы. Сложность 100%. Баланс требует игрового прогона.').encode('cp1251')
     m.terrain=landscape(); assets.terrain.apply(m.terrain,seed=seed)
     m.objects=[]
@@ -110,48 +114,15 @@ def generate(assets,seed=20262905):
         if c[1]==wall_y and c[0]!=62:
             catalog.place(m,catalog.BorrowedObject(rock,b'','underworld wall'),*c); occupied.add(c)
 
-    # Every hint names actual coordinates, making direction changes unambiguous.
-    objectives={}
-    from odyssey.playable import OBJECTIVES
-    for key,text in OBJECTIVES.items():
-        objectives[key]=text
-    objectives.update(
-        troy='Разбейте дозор рядом со стоянкой. Корабль у южного пляжа. Затем Исмар (8,44). Шляпа адмирала уже надета: не снимайте её, чтобы посадка и высадка не съедали весь ход.',
-        ismar='Отбейте киконов рядом с причалом. Можно рискнуть ради отставших лучников. Следом лотофаги (8,26).',
-        lotus='Спасите разведчиков: победите разбойников и заберите пополнение рядом. В боковой роще можно добыть заклинание Точность. Далее Полифем (8,8).',
-        cyclops='Побег, а не убийство: нужны 30 дерева и 1000 золота. Вино и кол охраняются рядом с пещерой. Подготовьте план в хижине, затем Эол (26,8).',
-        aeolus='Западная хижина даёт мех ветров. Огни родины совсем рядом: (26,26). После раскрытия меха вернитесь в восточную хижину. Дальше лестригоны (44,8).',
-        lights='Мех раскрыт, ветры уносят корабль от родины. Возвращайтесь к Эолу (26,8), в восточную хижину. Здесь больше заданий нет.',
-        giants='Разбейте лестригонов у пристани. Потом к Кирке (62,8). Дальний обход океана больше не нужен.',
-        circe='Отбейте 7 самоцветов в роще и поговорите с западной хижиной Кирки. Врата Тиресия на севере (62,4); выслушайте его и вернитесь в восточную хижину. Далее сирены (62,26).',
-        hades='Поговорите с Тиресием сразу за стражем. Возвращайтесь через те же северные врата к Кирке. Подземное царство здесь — одна сцена.',
-        sirens='Пройдите морской бой. Необязательный груз на рифах даёт заклинание Лечение и ману. Следом Сцилла (62,44).',
-        scylla='Шесть копейщиков — цена спасения корабля. Запасные шестеро рядом. Завершите разговор со Сциллой; затем Гелиос (62,62).',
-        helios='Спутники нарушили запрет Тиресия. Бой со стадом изображает это решение. Затем Калипсо (44,62).',
-        calypso='Для плота нужны 20 дерева и 10 руды: сохраните свои или отбейте склад. Боковой грот даёт войска ценой боя. Затем феаки (26,62).',
-        phaeacia='Победите бойцов Алкиноя. Большие состязания можно пропустить: они дают опыт и крестоносцев ценой потерь. Итака рядом, на севере (26,44).',
-        ithaca='Победите женихов у дворца и поговорите с Пенелопой. Ничего собирать и относить по другим островам больше не нужно.')
-
-    objectives['cyclops']='Подготовьте побег: западная хижина требует 30 дерева и 1000 золота; склад охраняется рядом. Альтернатива: мастер продаст готовый план за 7000 золота. Выбирайте трату денег или бой за припасы. Далее Эол (26,8).'
-    objectives['circe']='Помощь Гермеса: отбейте 7 самоцветов и придите в западную хижину Кирки, либо заплатите мастеру 7000 золота за молю. Затем северные врата (62,4), Тиресий и восточная хижина Кирки. Далее сирены (62,26).'
-    objectives['calypso']='Плот: отдайте 20 дерева и 10 руды в хижину Калипсо или купите готовый у мастера за 9000 золота. Материалы охраняются рядом. Сбережённые деньги или сбережённые люди? Далее феаки (26,62).'
-    after={
-        10:'Полифем пьян и ослеплён; вы спаслись под баранами. Не нужно никого убивать в пещере. Следующая цель: мех Эола, остров (26,8), западная хижина.',
-        11:'Мех ветров у вас. Следующая цель: огни Итаки (26,26). После раскрытия меха вернитесь в восточную хижину Эола.',
-        21:'Эол отказал в новой помощи. Следующая цель: гавань лестригонов (44,8), победить великанов.',
-        13:'Молю разрушает чары, спутники снова люди. Следующая цель: Тиресий за северными вратами (62,4). Затем вернитесь в восточную хижину Кирки.',
-        14:'Тиресий предостерегает от стад Гелиоса. Вы встретили тень матери. Следующая цель: восточная хижина Кирки через те же северные врата.',
-        15:'Кирка дала воск и путы. Следующая цель: сирены (62,26). Сохраните шесть копейщиков для Сциллы.',
-        17:'Шесть спутников погибли, корабль прошёл пролив. Следующая цель: стада Гелиоса (62,62).',
-        19:'Плот готов. Одиссей отвергает бессмертие и отправляется домой. Следующая цель: феаки (26,62), состязания Алкиноя.',
-        36:'Пенелопа узнаёт вас по тайне ложа, выросшего из живой оливы. После двадцати лет Одиссей дома.'}
+    # Use the same player-facing bearings in every source of instructions.
+    objectives,after=texts()
     quests=[]; optional_quests=[]
     for q in old['quests']:
         key=q['island']; offset=(2,0) if q['reward'] in (21,15) else (-2,0)
         if key=='hades': offset=(-2,2)
         first=objectives[key]
-        if q['reward']==21: first='Вторая встреча: сначала раскройте мех у огней родины (26,26). Затем вернитесь сюда.'
-        if q['reward']==15: first='Второй разговор: выслушайте Тиресия за северными вратами и вернитесь сюда.'
+        if q['reward']==21: first='ВТОРАЯ ВСТРЕЧА. Сначала посетите пляж №06 Огни родины — песчаный остров прямо ВНИЗУ от Эола. После раскрытия меха вернитесь в эту, ПРАВУЮ хижину.'
+        if q['reward']==15: first='ВТОРОЙ РАЗГОВОР. Сначала получите молю в ЛЕВОЙ хижине или у мастера, затем пройдите северные подземные врата, выслушайте Тиресия и вернитесь в эту, ПРАВУЮ хижину.'
         done=after[q['reward']]
         o=put(83,local(key,offset),p.seer(q['required'],q['reward'],first,done,mission=q['mission']),near=True)
         quests.append(dict(q,position=list(o.position),first=first,done=done)); record(o,key,q['title'])
@@ -192,8 +163,20 @@ def generate(assets,seed=20262905):
     for b in old['encounters']:
         if b['identifier']>=40000 and b['identifier']<50000: continue
         key=b['island']; raw=originals[54,tuple(b['position'])].payload
+        if key in ('troy','ismar','lotus','giants','sirens','helios','phaeacia'):
+            from h3m.adventure import read_monster
+            raw=edit_monster(raw,message=read_monster(raw)['message']+'\n\nПОСЛЕ ПОБЕДЫ\n'+course(key))
         o=put(54,local(key,(2,0)),raw,b['creature'],near=True)
         battles.append(dict(b,position=list(o.position))); record(o,key,'Бой')
+
+    # A free native scouting network makes the named islands visible before sailing.
+    lookout=put(37,local('troy',(-2,3)),near=True)
+    record(lookout,'troy','Карта Афины: хижина мага')
+    eyes=[]
+    for i in ISLANDS:
+        if i.z or i.key=='troy': continue
+        eye=put(27,local(i.key,(-3,-2)),near=True)
+        eyes.append(dict(island=i.key,position=list(eye.position)))
 
     # Same native quest conditions, rebuilt around the smaller coasts.
     reefs=set(); lanes=set(); gates=[]; scenes=[]
@@ -212,7 +195,7 @@ def generate(assets,seed=20262905):
         reefs.update((xx,yy,z) for xx in (x-1,x+1) for yy in range(y+1,y+4))
         if key=='troy': continue
         g=next(g for g in old['harbour_guards'] if g['island']==key)
-        o=put(215,(x,y+3,z),p.quest(g['required'],i.name+'\n'+objectives[key],
+        o=put(215,(x,y+3,z),p.quest(g['required'],gate_hint(key),
             'Пролив открыт.\n'+objectives[key],mission=g['mission']),water=True)
         gates.append(dict(g,position=list(o.position)))
         if key in sea_by_key:
@@ -221,24 +204,26 @@ def generate(assets,seed=20262905):
             battles.append(dict(b,position=list(o.position)))
         # Arrival message before fight; the winds token remains beyond the fight.
         cell=(x,y if key=='lights' else y+2,z)
-        msg=i.name+'\n\n'+objectives[key]
+        msg=objectives[key]
         o=put(26,cell,Reward(msg,artifacts=(22,) if key=='lights' else (),movement=500,mana=10).event(),water=True)
         scenes.append(dict(island=key,position=list(o.position),message=msg))
     g=next(g for g in old['harbour_guards'] if g['island']=='hades')
     o=put(215,(62,wall_y,1),p.quest((13,),'Принесите знак Кирки.','Тиресий ждёт рядом.'))
     gates.append(dict(g,position=list(o.position)))
-    reef_templates=sorted({t.animation_file:t for ts in assets.templates.values() for t in ts
-        if t.object_id in (147,161) and t.allows_terrain(Terrain.WATER)
-        and t.blocked_cells()==[(0,0)] and not t.visitable_cells()}.values(),key=lambda t:t.animation_file)
     reefs.difference_update(lanes)
-    for n,c in enumerate(sorted(reefs)):
-        if c in occupied: raise ValueError(f'Reef overlaps object {c}')
-        catalog.place(m,catalog.BorrowedObject(reef_templates[n%len(reef_templates)],b'','reef'),*c)
-        occupied.add(c)
+    barrier_report=place_barriers(m,assets,ISLANDS,reefs,lanes,occupied,seed)
+
+    # Optional sea labels identify a destination before its quest gate.
+    bottles=[]
+    for key,(x,y,z) in docks.items():
+        if key=='troy': continue
+        msg=gate_hint(key)
+        bottle=put(59,(x+1,y+4,z),sign_payload(msg.encode('cp1251')),water=True)
+        bottles.append(dict(island=key,position=list(bottle.position),message=msg))
 
     # Visible signs sit beside the actions, not at far corners of empty islands.
     for i in ISLANDS:
-        o=put(91,local(i.key,(-1,3)),sign_payload((i.name+'\n'+objectives[i.key]).encode('cp1251')),near=True)
+        o=put(91,local(i.key,(-1,3)),sign_payload(objectives[i.key].encode('cp1251')),near=True)
         record(o,i.key,'Указатель')
     # Reserve real routes to each southern interaction before adding scenery.
     blocked=obstacle_cells(m)
@@ -259,18 +244,21 @@ def generate(assets,seed=20262905):
             if not footprint<=all_land: continue
             catalog.place(m,catalog.BorrowedObject(t,b'','compact scenery'),*c); occupied.update(footprint); break
 
-    m.events.events=[timed_message('Первый шаг', 'ОДИССЕЯ: ТЕСНЫЕ ПРОЛИВЫ\n\n'+objectives['troy']+
-        '\n\nНа островах задача, припасы и выход находятся рядом. Дополнительные бои можно пропустить. '
-        'Заклинания помогают сберечь войско. Победа — освободить Итаку и встретиться с Пенелопой.')]
+    m.events.events=[timed_message('Первый шаг — карта Афины',INTRO)]
     report=dict(old,gameplay_revision=4,name=m.header.name_text,size=72,objects=len(m.objects),
         quests=quests,chapters=quests,choices=choices,encounters=battles,scenes=scenes,harbour_guards=gates,
         sea_encounters=[b for b in battles if 40000<=b['identifier']<50000],objectives=objectives,
-        reefs=len(reefs),start=start,teleport_pairs=[(portals[0],portals[1]),(portals[1],portals[0])],
+        reefs=sum(o.object_id in (147,161) for o in m.objects),reef_wall_cells_before=len(reefs),
+        start=start,teleport_pairs=[(portals[0],portals[1]),(portals[1],portals[0])],
         islands=[dict(key=i.key,name=i.name,center=[i.x,i.y,i.z]) for i in ISLANDS],
         layout=[dict(key=i.key,center=[i.x,i.y,i.z],radius=6,
             protected_cells=sorted(c for c in lands[i.key] if i.key!='hades' or c[1]>wall_y)) for i in ISLANDS],
         action_sites=records,admirals_hat_equipped=True,bargains=bargains,
         optional_quest_positions=optional_quests,decorations=sum(114<=o.object_id<=140 for o in m.objects),
+        landscape_revision=1,barriers=barrier_report,
+        guidance=dict(revision=1,scouting_hut=list(lookout.position),eyes=eyes,bottles=bottles,
+                      stops={key:title for key,(title,_) in STOPS.items()},
+                      repeatable_signs=len(ISLANDS),coordinate_only_hints=False),
         native_editor_checked=False,full_playtest=False)
     report.update(validate(m,report))
     report['landings']=audit_landings(m,docks)

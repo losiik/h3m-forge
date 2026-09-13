@@ -261,17 +261,22 @@ def parse_quest(payload, *, hut=False):
         raise ValueError('Unexpected deadline')
     messages=[r.string().decode('cp1251') for _ in range(3)]
     reward=None
+    reward_kind=None
     if hut:
-        if r.u8()!=8:
-            raise ValueError('Unexpected quest reward')
-        reward=r.u16()
-        if r.u16()!=0 or r.u32()!=0 or r.bytes_(2)!=bytes(2):
+        reward_kind=r.u8()
+        if reward_kind==8:
+            reward=r.u16()
+            if r.u16()!=0:raise ValueError('Invalid artifact spell word')
+        elif reward_kind in (6,7):reward=(r.u8(),r.u8())
+        elif reward_kind==10:reward=(r.u16(),r.u16())
+        else:raise ValueError('Unexpected quest reward')
+        if r.u32()!=0 or r.bytes_(2)!=bytes(2):
             raise ValueError('Unexpected quest extension')
     r.expect_end()
-    return dict(mission=mission,required=required,reward=reward,messages=messages)
+    return dict(mission=mission,required=required,reward=reward,reward_kind=reward_kind,messages=messages)
 
 
-def validate(m, report):
+def validate(m, report, *, avoid_battles=frozenset(), avoid_ambushes=frozenset()):
     """Check native conditions and a permissive playthrough, including resource supply.
 
     Assumes winning every battle without troop losses. This is a progression
@@ -288,8 +293,23 @@ def validate(m, report):
     gates={visit(o):(o,parse_quest(o.payload)) for o in objects if o.object_id==215}
     huts={visit(o):(o,parse_quest(o.payload,hut=True)) for o in objects if o.object_id==83}
     monsters={visit(o):(o,read_monster(o.payload)) for o in objects if o.object_id==54}
+    finale=report.get('finale')
+    if finale:
+        from h3m.conditions import VictoryType
+        enemies=[o for o in objects if o.object_id==34 and o.payload[4]==1]
+        if len(enemies)!=1:raise ValueError('Finale needs exactly one blue hero')
+        enemy=enemies[0]
+        town=next((o for o in objects if o.object_id==98 and o.position==tuple(finale['town'])),None)
+        if town is None or visit(enemy) in {
+            (town.x+dx,town.y+dy,town.z) for dx,dy in parsed.object_templates[town.template_index].blocked_cells()
+        }:
+            raise ValueError('Finale hero must stand outside the town footprint')
+        if m.victory.kind!=VictoryType.BEAT_HERO or m.victory.allow_normal_victory or m.victory.applies_to_ai or m.victory.payload!=bytes(visit(enemy)):
+            raise ValueError('Victory does not target the blue hero visit cell')
+        monsters[visit(enemy)]=(enemy,dict(identifier=int.from_bytes(enemy.payload[:4],'little'),artifact=65535,resources=[0]*7))
     rewards={visit(o):(o,read_reward(o.payload,event=o.object_id==26))
              for o in objects if o.object_id in (6,26)}
+    guarded_events={cell for cell,(o,r) in rewards.items() if o.object_id==26 and r['guards']}
     expected_gates={tuple(g['position']):g for g in report['harbour_guards']}
     if len(gates)!=len(expected_gates):
         raise ValueError('Missing or duplicate guard')
@@ -311,7 +331,17 @@ def validate(m, report):
         permanent.update((o.x+dx,o.y+dy,o.z) for dx,dy in t.blocked_cells()
                          if (dx,dy) not in t.visitable_cells())
     acquired=Counter()
-    troops=Counter(dict(START_ARMY))
+    # Read the actual authored hero, rather than assuming the old revision's army.
+    hero=next(o for o in objects if o.object_id==34 and o.payload[4]==0)
+    hero_reader=BinaryReader(hero.payload)
+    hero_reader.bytes_(6)
+    if hero_reader.u8():hero_reader.string()
+    if hero_reader.u8():hero_reader.u32()
+    if hero_reader.u8():hero_reader.u8()
+    if hero_reader.u8():hero_reader.bytes_(hero_reader.u32()*2)
+    if hero_reader.u8()!=1:raise ValueError('Story hero requires an explicit starting army')
+    starting=[(hero_reader.u16(),hero_reader.u16()) for _ in range(7)]
+    troops=Counter({c:n for c,n in starting if c!=65535})
     resources=[0]*7  # prove supplies suffice even without the difficulty's initial stock
     killed=set()
     closed,alive=set(gates),set(monsters)
@@ -328,7 +358,7 @@ def validate(m, report):
         req=q['required']
         return {4:lambda:req[0] in killed,
                 5:lambda:all(acquired[a]>=n for a,n in Counter(req).items()),
-                6:lambda:all(troops[c]>=n for c,n in req),
+                6:lambda:all(troops[c]>=n for c,n in req) and sum(troops.values())>sum(n for c,n in req),
                 7:lambda:all(a>=b for a,b in zip(resources,req)),
                 8:lambda:req==(0,)}[q['mission']]()
     def pay(q):
@@ -338,8 +368,8 @@ def validate(m, report):
             for c,n in q['required']: troops[c]-=n
         elif q['mission']==7:
             for i,n in enumerate(q['required']): resources[i]-=n
-    for _ in range(200):
-        seen=reachable(parsed,start,permanent|closed|alive,pairs)
+    for _ in range(400):
+        seen=reachable(parsed,start,permanent|closed|alive|(guarded_events-collected),pairs)
         for cell in closed:
             o,q=gates[cell]
             key=expected_gates[o.position]['island']
@@ -368,27 +398,42 @@ def validate(m, report):
                 changed=True; break
         if changed: continue
         for cell in sorted(alive):
-            if adjacent(cell,seen):
-                killed.add(monsters[cell][1]['identifier']); alive.remove(cell)
-                history.append('battle:'+str(monsters[cell][1]['identifier']))
+            info=monsters[cell][1]
+            if info['identifier'] not in avoid_battles and adjacent(cell,seen):
+                killed.add(info['identifier']); alive.remove(cell)
+                if info.get('artifact',65535)!=65535:acquired[info['artifact']]+=1
+                for i,n in enumerate(info.get('resources',[0]*7)):resources[i]+=n
+                history.append('battle:'+str(info['identifier']))
                 changed=True; break
         if changed: continue
         for cell,(o,r) in rewards.items():
-            if cell not in collected and (cell in seen or adjacent(cell,seen)):
+            # An EVENT fires only when the hero steps on its exact tile. Merely
+            # reaching an adjacent shore must never award a hidden story item.
+            accessible = cell in seen if o.object_id==26 else (cell[0],cell[1]+1,cell[2]) in seen
+            if cell in guarded_events:
+                accessible=cell not in avoid_ambushes and adjacent(cell,seen)
+            if cell not in collected and accessible:
                 if o.object_id==26 and (r['players']!=1 or not r['human'] or not r['once']):
                     raise ValueError('Story event will not activate exactly once for the human')
                 for a,spell in r['artifacts']: acquired[a]+=1
                 for c,n in r['army']: troops[c]+=n
                 for i,n in enumerate(r['resources']): resources[i]+=n
                 collected.add(cell); changed=True
+                if r['guards']:history.append(('ambush:' if o.object_id==26 else 'cache:')+', '.join(map(str,cell)))
+                for a,spell in r['artifacts']:history.append('item:'+str(a))
         if changed: continue
         for cell,(o,q) in huts.items():
             if cell not in spoken and (cell[0],cell[1]+1,cell[2]) in seen and eligible(q):
-                pay(q); acquired[q['reward']]+=1; spoken.add(cell)
+                pay(q)
+                if q['reward_kind']==8:acquired[q['reward']]+=1
+                elif q['reward_kind']==10:troops[q['reward'][0]]+=q['reward'][1]
+                spoken.add(cell)
                 history.append('quest:'+str(q['reward'])); changed=True; break
         if not changed: break
     required_huts={cell for cell,(o,q) in huts.items() if o.position not in optional_huts}
-    if closed or alive or acquired[36]!=1 or not required_huts<=spoken:
+    required_alive={cell for cell in alive if monsters[cell][1]['identifier'] not in report.get('optional_monster_ids',())}
+    completed_finale=finale['identifier'] in killed if finale else acquired[36]==1
+    if closed or required_alive or not completed_finale or not required_huts<=spoken:
         raise ValueError(f'Progression deadlock: closed={closed}, alive={alive}, quests={len(spoken)}/{len(huts)}, inventory={acquired}, resources={resources}')
     for key in ('ismar','lotus','cyclops','aeolus','lights','giants','circe','hades','sirens','scylla','helios','calypso','phaeacia','ithaca'):
         if 'gate:'+key not in history:

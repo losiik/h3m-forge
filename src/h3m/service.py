@@ -77,9 +77,18 @@ class MapService:
                     output_directory=str(self.workspace / "out" / "mcp"),
                     transport="stdio", target="HotA 1.8.0",
                     operations=["list_maps", "inspect_map", "list_objects", "validate_map",
-                                "generate_world", "generate_odyssey", "edit_metadata",
-                                "inspect_encounters", "edit_monster"],
+                                "generate_world", "generate_odyssey", "generate_scenario", "scenario_catalog", "edit_metadata",
+                                "inspect_encounters", "inspect_texts", "preview_map", "edit_monster",
+                                "skill_catalog", "inspect_hero_skills", "catalog_search", "catalog_get"],
                     write_policy="New bundles only; existing and installed maps are preserved.")
+
+    def catalog_search(self, category=None, query=None, tag=None, faction=None, offset=0, limit=20, ruleset='hota_1.8.1'):
+        from h3m.game_catalog import catalog_search
+        return catalog_search(category,query,tag,faction,offset,limit,ruleset)
+
+    def catalog_get(self, category, id, ruleset='hota_1.8.1'):
+        from h3m.game_catalog import catalog_get
+        return catalog_get(category,id,ruleset)
 
     def _input_path(self, value: str):
         candidate = Path(value)
@@ -154,6 +163,36 @@ class MapService:
         path, m, raw, digest = self._load(path)
         return dict(path=str(path), file_sha256=digest, **binary_checks(m, raw))
 
+    def inspect_texts(self, path, offset=0, limit=50):
+        from h3m.narrative import inspect_texts
+        path, m, _, digest = self._load(path)
+        result = inspect_texts(m)
+        rows = result.pop('items')
+        return dict(path=str(path), file_sha256=digest, **result,
+                    **self._page(rows, offset, limit))
+
+    def skill_catalog(self, query=None):
+        from h3m.skills import skill_catalog
+        return skill_catalog(query)
+
+    def inspect_hero_skills(self, path, offset=0, limit=50):
+        from h3m.skills import inspect_hero_skills
+        path, m, _, digest = self._load(path)
+        result = inspect_hero_skills(m)
+        rows = result.pop('items')
+        return dict(path=str(path), file_sha256=digest, **result,
+                    **self._page(rows, offset, limit))
+
+    def preview_map(self, path, *, level=0, x=0, y=0, width=None, height=None,
+                    offset=0, limit=50, include_grid=False, image=True):
+        from h3m.preview import describe, render_png
+        path,m,_,digest=self._load(path)
+        result,blocked,markers=describe(m,level=level,x=x,y=y,width=width,height=height,
+                                      offset=offset,limit=limit,include_grid=include_grid)
+        result.update(path=str(path),file_sha256=digest)
+        png=render_png(m,result,blocked,markers) if image else None
+        return result,png
+
     def list_objects(self, path, object_id=None, level=None, offset=0, limit=50):
         _, m, _, digest = self._load(path)
         rows = []
@@ -194,6 +233,10 @@ class MapService:
             result = dict(report, file_sha256=digest, binary_validation=checks)
             (staging / "report.json").write_text(
                 json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            if kind=='scenario':
+                from h3m.scenario_cli import walkthrough
+                (staging/'walkthrough.md').write_text(walkthrough(result),encoding='utf-8')
+                (staging/'specification.json').write_text(json.dumps(report['specification'],ensure_ascii=False,indent=2),encoding='utf-8')
             staging.rename(final)
         except BaseException:
             # Only this operation's freshly created temporary directory is removed.
@@ -209,7 +252,7 @@ class MapService:
             raise ValueError("HotA installation is required for generation; set --game-dir")
         if self._assets is None:
             files = [p for p in paths.iter_maps(self.game_dir)
-                     if not p.name.startswith("Odyssey-Homecoming")]
+                     if not p.name.startswith(("Odyssey-Homecoming", "Forge-"))]
             if not files:
                 raise ValueError("No reference .h3m maps found in game Maps directory")
             self._assets = Assets.cached(files, self._output_root() / "world-assets.json")
@@ -224,10 +267,34 @@ class MapService:
     def generate_odyssey(self, seed=20260905):
         if type(seed) is not int:
             raise ValueError("seed must be an integer")
-        from odyssey.compact import generate
+        from odyssey.well_journey import generate
         with self._generation_lock:
             m, report = generate(self._reference_assets(), seed)
             return self._publish(m, report, "odyssey")
+
+    def generate_scenario(self, value):
+        from h3m.scenario_spec import ScenarioSpec
+        from h3m.scenario import generate_scenario
+        spec=ScenarioSpec.from_dict(value)
+        with self._generation_lock:
+            m,report=generate_scenario(spec,self._reference_assets())
+            result=self._publish(m,report,'scenario')
+            result['walkthrough_path']=str(Path(result['path']).with_name('walkthrough.md'))
+            result['specification_path']=str(Path(result['path']).with_name('specification.json'))
+            return result
+
+    def scenario_catalog(self, offset=0, limit=50):
+        from h3m.scenario_spec import COMBAT_SPELLS, SOILS
+        with self._generation_lock:
+            assets=self._reference_assets()
+            creatures=[dict(id=sub,animation=ts[0].animation_text) for (kind,sub),ts in sorted(assets.templates.items()) if kind==54]
+        return dict(balance_profiles=['standard','fixed'],terrains=sorted(SOILS),challenge_types=['visit','battle','resources','army','artifacts'],
+                    combat_spells=sorted(COMBAT_SPELLS),resource_order=['wood','mercury','ore','sulfur','crystal','gems','gold'],
+                    artifact_range='10..51 excluding 36 (reserved finale); no travel artifacts',
+                    geometry='72x72 surface archipelago, 2..16 chapters; conjunctive dependencies and optional branches',
+                    creatures=self._page(creatures,offset,limit),
+                    secondary_skills_tool='skill_catalog',
+                    hero_skills_example=[[17,2],[7,2]])
 
     def edit_metadata(self, path, expected_sha256, name=None, description=None):
         source, m, raw, digest = self._load(path)

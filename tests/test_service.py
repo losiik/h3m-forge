@@ -54,6 +54,22 @@ def test_stale_hash_and_bad_text_do_not_write(service, source):
     assert not (service.workspace / "out").exists()
 
 
+def test_text_inspection_paginates_without_changing_map(service, source):
+    from h3m.adventure import timed_message
+    m=mapfile.load(source)
+    m.events.events=[timed_message('Первый курс','На север'),
+                     timed_message('Второй курс','На восток',day=3)]
+    mapfile.save(source,m)
+    original=source.read_bytes()
+    first=service.inspect_texts(str(source),limit=1)
+    second=service.inspect_texts(str(source),offset=first['next_offset'],limit=1)
+    assert first['total']==2 and first['items'][0]['text']=='На север'
+    assert second['items'][0]['first_day']==3 and second['next_offset'] is None
+    assert first['file_sha256']==second['file_sha256']
+    assert not first['errors'] and first['full_parse']
+    assert source.read_bytes()==original
+
+
 def test_paths_are_scoped_and_symlinks_resolved(service, tmp_path):
     outside = tmp_path / "outside.h3m"
     mapfile.save(outside, hota.new_map("Outside"))

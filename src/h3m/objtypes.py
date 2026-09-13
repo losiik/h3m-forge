@@ -34,6 +34,7 @@ class Obj(IntEnum):
     GRAIL = 36
     LEAN_TO = 39
     LIGHTHOUSE = 42
+    MAGIC_WELL = 49
     MINE = 53
     MONSTER = 54
     OCEAN_BOTTLE = 59
@@ -70,6 +71,7 @@ class Obj(IntEnum):
     TREE_OF_KNOWLEDGE = 102
     UNIVERSITY = 104
     WAGON = 105
+    WAR_MACHINE_FACTORY = 106
     WARRIORS_TOMB = 108
     WITCH_HUT = 113
     HOTA_CUSTOM_OBJECT_1 = 145

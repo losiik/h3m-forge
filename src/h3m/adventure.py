@@ -45,6 +45,8 @@ class Reward:
     morale: int = 0
     luck: int = 0
     movement: int = 0
+    primary: tuple = (0, 0, 0, 0)
+    skills: tuple = ()
 
     def common(self):
         if len(self.resources) != 7 or any(type(v) is not int for v in self.resources):
@@ -56,10 +58,15 @@ class Reward:
         if len(self.spells)>70 or any(type(s) is not int or not 0<=s<70 for s in self.spells):
             raise ValueError('Invalid spell list')
         army = army_bytes(self.army)
+        if len(self.primary)!=4 or any(type(v) is not int or not 0<=v<=127 for v in self.primary):
+            raise ValueError('Provide four primary skill gains, 0..127')
+        if len(self.skills)>8 or any(type(s) is not int or not 0<=s<28 or type(level) is not int or not 1<=level<=3 for s,level in self.skills):
+            raise ValueError('Invalid secondary skill reward')
         guards = army_bytes(self.guards, fixed=True) if self.guards else b''
         return (b'\x01' + text(self.message) + bytes([bool(self.guards)]) + guards + bytes(4)
                 + pack('Iibb', self.experience,self.mana,self.morale,self.luck)
-                + pack('7i', *self.resources) + bytes(5) + bytes([len(self.artifacts)])
+                + pack('7i', *self.resources) + bytes(self.primary) + bytes([len(self.skills)])
+                + b''.join(bytes(pair) for pair in self.skills) + bytes([len(self.artifacts)])
                 + b''.join(pack('HH',a,0) for a in self.artifacts)
                 + bytes([len(self.spells)]) + bytes(self.spells) + bytes([len(self.army)]) + army + bytes(8))
 

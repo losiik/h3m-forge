@@ -47,11 +47,65 @@ def test_missing_cyclops_coastal_bit_reproduces_landing_failure(compact):
         audit_landings(broken,{'cyclops':tuple(beach)})
 
 
+def test_new_headlands_are_fully_blocked_and_use_native_terrain_templates(compact):
+    from h3m.pacing import obstacle_cells
+    m,r=compact
+    barriers=r['barriers']
+    assert barriers['multi_cell_water_objects']>0
+    assert {134,135,140} <= set(barriers['land_objects'])
+    assert barriers['water_objects'][139]>0
+    cells=set(map(tuple,barriers['blocked_land_cells']))
+    assert cells <= obstacle_cells(m)
+    assert all(not m.terrain.tile(*c).is_water for c in cells)
+    assert not cells & {tuple(h['beach']) for h in r['landings']['harbours']}
+    # Blocking cap objects must retain real native masks and terrain support.
+    for o in m.objects:
+        t=m.object_templates[o.template_index]
+        footprint={(o.x+dx,o.y+dy,o.z) for dx,dy in t.blocked_cells()}
+        if footprint & cells:
+            assert footprint <= cells
+            assert not t.visitable_cells()
+            assert all(t.allows_terrain(m.terrain.tile(*c).terrain) for c in footprint)
+            assert not t.animation_file.lower().startswith((b'avlwa',b'avlca'))
+
+
 def test_required_action_distance_budget_is_enforced(compact):
     m,r=compact
     leg=max(r['pacing']['legs'],key=lambda x:x['steps'])
     with pytest.raises(ValueError,match='exceeds budget'):
         audit_sea_legs(m,[(leg['label'],leg['start'],leg['end'])],max_steps=leg['steps']-1)
+
+
+def test_guidance_names_real_bearings_and_keeps_scouting_accessible(compact):
+    from odyssey.guidance import DIRECTIONS, STOPS
+    from odyssey.compact import CENTERS
+    from h3m.narrative import inspect_texts
+    m,r=compact
+    for (a,b),direction in DIRECTIONS.items():
+        ax,ay=CENTERS[a]; bx,by=CENTERS[b]
+        if direction.startswith('СЕВЕР'): assert by<ay and bx==ax
+        elif direction.startswith('ЮГ'): assert by>ay and bx==ax
+        elif direction.startswith('ВОСТОК'): assert bx>ax and by==ay
+        elif direction.startswith('ЗАПАД'): assert bx<ax and by==ay
+    assert len(r['guidance']['eyes'])==13
+    assert len(r['guidance']['bottles'])==13
+    hut=next(o for o in m.objects if o.object_id==37)
+    assert list(hut.position)==r['guidance']['scouting_hut']
+    assert any(x['label']=='Карта Афины: хижина мага' and x['steps']<=12 for x in r['shore_access']['routes'])
+    for eye in (o for o in m.objects if o.object_id==27):
+        assert m.object_templates[eye.template_index].object_subid==m.object_templates[hut.template_index].object_subid
+    rows=inspect_texts(m)
+    assert not rows['errors']
+    signs=[x for x in rows['items'] if x.get('object_id')==91]
+    assert len(signs)==len(STOPS)
+    assert all('СЕЙЧАС:' in x['text'] for x in signs)
+    # Two return visits must have distinct completion handoffs.
+    done={q['reward']:q['done'] for q in r['quests']}
+    assert '06. Огни' in done[11] and '07. Лестригоны' in done[21]
+    assert 'ПРАВАЯ хижина Кирки' in done[14] and '09. Сирены' in done[15]
+    for key in ('aeolus','circe'):
+        visits=sorted((q for q in r['quests'] if q['island']==key),key=lambda q:q['reward'])
+        assert visits[0]['position'][0] < visits[1]['position'][0]
 
 
 def test_can_finish_without_paid_bargains_or_optional_rewards(compact):

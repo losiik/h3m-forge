@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "h3m-forge": {
+      "command": "C:/Users/serge/PycharmProjects/h3m-forge/.venv-mcp/Scripts/python.exe",
+      "args": [
+        "-m", "h3m.mcp_server",
+        "--workspace", "C:/Users/serge/PycharmProjects/h3m-forge",
+        "--game-dir", "C:/Games/Heroes of Might and Magic III Complete"
+      ],
+      "env": { "PYTHONUTF8": "1" }
+    }
+  }
+}
