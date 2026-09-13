@@ -210,6 +210,9 @@ python tools/make_odyssey_story.py
 Установка: `pip install -e ".[mcp]"`. Новые сборки идут в отдельные каталоги
 `out/mcp/`. [Запуск, подключение к Codex, инструменты и ограничения](docs/mcp.md).
 
+В PyCharm можно запускать корневой `main.py` кнопкой Run.
+[Установка зависимостей, выбор интерпретатора и подключение Claude/ChatGPT](docs/mcp-other-agents.md).
+
 Нативные награды, охрана ящиков и события HotA revision 9 доступны через
 `h3m.adventure.Reward`. [Разбор руководств по картам и принятые решения](docs/mapmaking-notes.md).
 

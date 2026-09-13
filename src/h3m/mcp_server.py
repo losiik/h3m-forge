@@ -293,9 +293,10 @@ def create_server(service: MapService):
     return server
 
 
-def main():
+def main(*, default_workspace: Path | None = None):
     parser = argparse.ArgumentParser(description="Local h3m-forge MCP server (stdio)")
-    parser.add_argument("--workspace", type=Path, required=True,
+    parser.add_argument("--workspace", type=Path, default=default_workspace,
+                        required=default_workspace is None,
                         help="Project/data root; generated bundles go to out/mcp")
     parser.add_argument("--game-dir", type=Path, help="Heroes III + HotA installation")
     args = parser.parse_args()

@@ -32,6 +32,8 @@ dist/
 .venv-mcp/
 # Local MCP launch paths; portable example is in examples/codex.mcp.toml.
 .codex/config.toml
+# Claude Code connection with machine-specific absolute paths.
+.mcp.json
 venv/
 .pytest_cache/
 .mypy_cache/

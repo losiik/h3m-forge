@@ -1,6 +1,6 @@
 # Локальный MCP-сервер h3m-forge
 
-Для проверки в других агентах: [Claude, ChatGPT и два тестовых сценария](mcp-other-agents.md).
+Для проверки в других агентах: [Claude Desktop, вкладка Code, Claude Code в терминале и ChatGPT](mcp-other-agents.md).
 
 MCP даёт агенту готовые операции над картами: ему не нужно каждый раз писать
 временный Python-скрипт для чтения заголовка, подсчёта объектов или сборки карты.
@@ -14,12 +14,22 @@ MCP даёт агенту готовые операции над картами:
 
 ```powershell
 python -m venv .venv-mcp
-.venv-mcp/Scripts/python.exe -m pip install -e '.[mcp,dev]'
-.venv-mcp/Scripts/python.exe -m h3m.mcp_server --workspace 'C:\Users\serge\PycharmProjects\h3m-forge' --game-dir 'C:\Games\Heroes of Might and Magic III Complete'
+& .\.venv-mcp\Scripts\python.exe -m pip install -e '.[mcp]'
+& .\.venv-mcp\Scripts\python.exe main.py
 ```
+
+Если окружение уже создано, пропустите первую команду. Для тестов установите
+`.[mcp,dev]` вместо `.[mcp]`. Активация окружения не нужна.
+
+В PyCharm выберите `.venv-mcp\Scripts\python.exe` как интерпретатор проекта
+и запустите корневой `main.py` кнопкой Run. Папка проекта определяется
+автоматически; `--workspace` позволяет выбрать другую. Прежний запуск
+`python -m h3m.mcp_server --workspace PATH` также поддерживается.
+[Подробная настройка PyCharm и зависимостей](mcp-other-agents.md).
 
 Последняя команда ждёт MCP-сообщения на stdin. Для обычного использования её
 запускает клиент автоматически. Доступен также entry point `h3m-forge-mcp`.
+Клиент не присоединяется к процессу, уже запущенному в окне Run; HTTP-адреса нет.
 Без `--game-dir` используется `H3_GAME_DIR` и стандартный поиск установленной игры.
 Без игры доступны PNG-обзор, текстовая разметка, просмотр и редактирование метаданных собственных карт;
 генерация требует референсных карт HotA.
